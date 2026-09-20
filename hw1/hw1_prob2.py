@@ -3,19 +3,20 @@ import numpy as np
 
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
-# size = Get_size()
+size = Get_size()
 
 if rank == 0:
-    dim = 100
-    matrix = np.random.randint(0, dim, (dim, dim))
-    vector = np.random.randint(0, dim, (dim, 1))
+    data_per_rank = 100
+    # ints from 1 to 100
+    matrix = np.random.rand(1, size * data_per_rank, data_per_rank * size)
+    vector = np.random.rand(1, size * data_per_rank, data_per_rank * 1)
 else:
-    dim = None
+    data_per_rank = None
 
-dim = comm.bcast(dim, root=0)
+data_per_rank = comm.bcast(data_per_rank, root=0)
 
 if rank != 0:
-    vector = np.empty((dim, 1), dtype=np.int_)
+    vector = np.empty((data_per_rank, 1), dtype=np.int_)
 
 comm.Bcast(vector, root=0)
 comm.Bcast(vector, root=0)
