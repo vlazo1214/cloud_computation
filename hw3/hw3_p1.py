@@ -1,83 +1,117 @@
 import re
+import sys
 from operator import add
 
-input_path = "./problem1_inputs/"
-
-# Read the file. spark.read.text creates one DataFrame row per input line.
-df = spark.read.text(input_path)
+from pyspark.sql import SparkSession
 
 
 def normalize(row):
     """
-    Convert one Spark Row into a normalized list of words.
+    Normalize one input row and return a list of words.
 
     Example:
-        Row(value="I had seen little.")
-        -> ["i", "had", "seen", "little"]
+        Row(value="1 The Adventure of the Blue Carbuncle';")
+        ->
+        ["the", "adventure", "of", "the", "blue", "carbuncle"]
     """
     line = row["value"]
 
-    # Convert to lowercase.
+    # Lowercase the line.
     line = line.lower()
 
     # Remove every character other than a-z and spaces.
     line = re.sub(r"[^a-z ]", "", line)
 
-    # split() handles repeated spaces and removes empty strings.
+    # Split into words.
     return line.split()
 
 
 def generate_pairs(row):
     """
-    Generate ordered word-pair contributions for one line.
+    Generate ordered word-pair contributions for one input line.
 
-    Each output has the form:
+    Each emitted record has this form:
 
         ((word1, word2), 1)
 
     word1 is the focal word.
-    word2 is a word appearing on the same line.
+    word2 is another word from the same line.
+
+    For self-pairs, the first occurrence is skipped. Therefore, if a word
+    occurs n times in a line, its self-pair contributes n - 1.
     """
     words = normalize(row)
 
     if not words:
         return []
 
-    # Process each focal word once per line while preserving first-seen order.
-    unique_focal_words = list(dict.fromkeys(words))
+    # Each distinct word becomes a focal word once per line.
+    focal_words = list(dict.fromkeys(words))
 
     pair_emissions = []
 
-    for word1 in unique_focal_words:
-        self_pair_emitted = False
+    for word1 in focal_words:
+        skipped_first_self_pair = False
 
-        # Iterate over the original list, not the distinct list.
-        # This preserves repeated occurrences of target words.
+        # Use the original word list so repeated words are preserved.
         for word2 in words:
+            if word1 == word2 and not skipped_first_self_pair:
+                # Skip only the first self-pair for this focal word.
+                skipped_first_self_pair = True
+                continue
 
-            if word1 == word2:
-                # Emit a self-pair once, even if word1 appears multiple
-                # times in the line.
-                if not self_pair_emitted:
-                    pair_emissions.append(((word1, word2), 1))
-                    self_pair_emitted = True
-            else:
-                # Repeated occurrences of other words are preserved.
-                pair_emissions.append(((word1, word2), 1))
+            pair_emissions.append(((word1, word2), 1))
 
     return pair_emissions
 
 
-# Convert the DataFrame to an RDD, generate all pair contributions,
-# and aggregate identical pairs across all lines.
-word_pair_counts = (
-    df.rdd
-      .flatMap(generate_pairs)
-      .reduceByKey(add)
-)
+def main():
+    if len(sys.argv) != 3:
+        print(
+            "Usage: spark-submit hw3_p1.py "
+            "<input_file> <output_file>"
+        )
+        sys.exit(1)
 
-# Inspect the results.
-results = word_pair_counts.collect()
+    input_file = sys.argv[1]
+    output_file = sys.argv[2]
 
-for pair, count in sorted(results):
-    print(pair, count)
+    # Create the SparkSession.
+    spark = (
+        SparkSession.builder
+        .appName("WordPairOccurrences")
+        .master("local[*]")
+        .getOrCreate()
+    )
+
+    try:
+        # spark.read.text creates one DataFrame row per input line.
+        df = spark.read.text(input_file)
+
+        # Generate pair contributions and aggregate identical keys.
+        word_pair_counts = (
+            df.rdd
+            .flatMap(generate_pairs)
+            .reduceByKey(add)
+        )
+
+        # Sort by pair so the output is deterministic.
+        results = dict(
+            word_pair_counts
+            .sortByKey()
+            .collect()
+        )
+
+        # Write the dictionary representation to the requested output file.
+        with open(output_file, "w", encoding="utf-8") as output:
+            output.write(str(results))
+
+        print(results)
+
+    finally:
+        # Shut down the SparkSession cleanly.
+        spark.stop()
+
+
+if __name__ == "__main__":
+    main()
