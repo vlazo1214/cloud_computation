@@ -1,3 +1,9 @@
+"""
+Usage: python hw3_p3.py
+*Assuming dataset is in the same directory
+"""
+
+
 import sys
 from pyspark.sql import SparkSession
 from pyspark.ml.feature import VectorAssembler
@@ -65,20 +71,14 @@ def main():
     print(f"Coefficients: {lr_model.coefficients}")
     print(f"Intercept: {lr_model.intercept}")
 
-    training_summary = lr_model.summary
+    # training_summary.roc is a DataFrame with columns "FPR" and "TPR"
+    roc_df = lr_model.summary.roc.toPandas()
     
-    # Get FPR and TPR from the training/model summary
-    fpr = training_summary.rocSelect("FPR").collect()
-    tpr = training_summary.rocSelect("TPR").collect()
-    
-    # Flatten the rows into standard lists
-    fpr_list = [row.FPR for row in fpr]
-    tpr_list = [row.TPR for row in tpr]
-    auc_roc = training_summary.areaUnderROC
+    auc_roc = lr_model.summary.areaUnderROC
 
     # Plotting
     plt.figure(figsize=(6, 6))
-    plt.plot(fpr_list, tpr_list, color="darkorange", lw=2, label=f"ROC curve (area = {auc_roc:.4f})")
+    plt.plot(roc_df["FPR"], roc_df["TPR"], color="darkorange", lw=2, label=f"ROC curve (area = {auc_roc:.4f})")
     plt.plot([0, 1], [0, 1], color="navy", lw=2, linestyle="--", label="Random Guess")
     plt.xlim([0.0, 1.0])
     plt.ylim([0.0, 1.05])
